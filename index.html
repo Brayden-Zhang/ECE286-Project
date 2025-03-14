@@ -1,0 +1,841 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Memory Recall Experiment</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        
+        h1, h2 {
+            color: #2c3e50;
+        }
+        
+        .grid-container {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin: 20px 0;
+        }
+        
+        .box {
+            width: 100%;
+            aspect-ratio: 1;
+            background-color: #f1f1f1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 24px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        
+        .box:hover {
+            background-color: #ddd;
+        }
+        
+        .flash {
+            background-color: #3498db;
+            color: white;
+        }
+        
+        .correct {
+            background-color: #2ecc71;
+            color: white;
+        }
+        
+        .incorrect {
+            background-color: #e74c3c;
+            color: white;
+        }
+        
+        button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            font-size: 16px;
+            cursor: pointer;
+            margin: 10px 5px 10px 0;
+            border-radius: 4px;
+        }
+        
+        button:hover {
+            background-color: #2980b9;
+        }
+        
+        select {
+            padding: 8px;
+            font-size: 16px;
+            margin: 10px 0;
+        }
+        
+        #results {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+        }
+        
+        .hidden {
+            display: none;
+        }
+        
+        #familiarityTest {
+            margin: 20px 0;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+        }
+        
+        audio {
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>Memory Recall Experiment</h1>
+    
+    <div id="setup">
+        <h2>Experiment Setup</h2>
+        <div>
+            <label for="participantId">Participant ID:</label>
+            <input type="text" id="participantId" required>
+        </div>
+        <div>
+            <label for="musicCondition">Music Condition:</label>
+            <select id="musicCondition">
+                <option value="none">No Music</option>
+                <option value="familiar">Familiar Music</option>
+                <option value="unfamiliar">Unfamiliar Music</option>
+            </select>
+        </div>
+        <div>
+            <label for="musicalTraining">Prior Musical Training (years):</label>
+            <input type="number" id="musicalTraining" min="0" value="0">
+        </div>
+        
+        <div id="familiarityTest" class="hidden">
+            <h3>Music Familiarity Test</h3>
+            <p>Please listen to the first 3 seconds of this song and indicate if it's familiar to you.</p>
+            <div id="audioPlayerContainer">
+                <audio id="audioPlayer" controls>
+                    <source src="" type="audio/mpeg">
+                    Your browser does not support the audio element.
+                </audio>
+                <button id="stopAfter3Sec">Play 3 seconds</button>
+            </div>
+            <div>
+                <button id="familiar">Yes, I recognize this song</button>
+                <button id="unfamiliar">No, I don't recognize this song</button>
+            </div>
+        </div>
+        
+        <button id="startTest">Start Test</button>
+    </div>
+    
+    <div id="testArea" class="hidden">
+        <h2>Memory Test</h2>
+        <div id="audioPlayback" class="hidden">
+            <p>Background music is playing. Please do not adjust volume during the test.</p>
+            <audio id="backgroundMusic" loop>
+                <source src="" type="audio/mpeg">
+            </audio>
+        </div>
+        
+        <p id="instructions">Memorize the order of the numbers that will appear.</p>
+        <div class="grid-container" id="grid">
+            <!-- Boxes will be generated dynamically -->
+        </div>
+        <p id="feedback"></p>
+        <button id="nextLevel" class="hidden">Next Level</button>
+        <button id="endTest" class="hidden">End Test</button>
+        <button id="quitTest" style="background-color: #e74c3c;">Quit Test</button>
+    </div>
+    
+    <div id="results" class="hidden">
+        <h2>Test Results</h2>
+        <div id="resultsContent"></div>
+        <button id="downloadResults">Download Results</button>
+        <button id="newTest">New Test</button>
+    </div>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Add more grid sizes for progressive difficulty
+            // Configuration
+            const gridSizes = [2, 3, 4, 5]; // More levels with increasing difficulty
+            let currentLevel = 0;
+            let sequence = [];
+            let userSequence = [];
+            let isDisplaying = false;
+            let isRecalling = false;
+            let startTime, endTime;
+            let attempts = 0;
+            let failures = 0;
+            let results = [];
+            let musicCondition = 'none';
+            let musicFamiliarity = null;
+            let wasQuit = false;
+            let allLevelsCompleted = false;
+            
+            // DOM elements
+            const setupDiv = document.getElementById('setup');
+            const testAreaDiv = document.getElementById('testArea');
+            const resultsDiv = document.getElementById('results');
+            const gridDiv = document.getElementById('grid');
+            const instructionsP = document.getElementById('instructions');
+            const feedbackP = document.getElementById('feedback');
+            const nextLevelBtn = document.getElementById('nextLevel');
+            const endTestBtn = document.getElementById('endTest');
+            const familiarityTestDiv = document.getElementById('familiarityTest');
+            const audioPlayer = document.getElementById('audioPlayer');
+            const stopAfter3Sec = document.getElementById('stopAfter3Sec');
+            const backgroundMusic = document.getElementById('backgroundMusic');
+            const audioPlayback = document.getElementById('audioPlayback');
+            
+            // Sample song URLs (you would replace these with your actual song URLs)
+            const familiarSongs = [
+                'https://example.com/familiar-song1.mp3',
+                'https://example.com/familiar-song2.mp3'
+            ];
+            
+            const unfamiliarSongs = [
+                'https://example.com/unfamiliar-song1.mp3',
+                'https://example.com/unfamiliar-song2.mp3'
+            ];
+            
+            // Event Listeners
+            document.getElementById('musicCondition').addEventListener('change', function() {
+                musicCondition = this.value;
+                if (musicCondition === 'familiar' || musicCondition === 'unfamiliar') {
+                    familiarityTestDiv.classList.remove('hidden');
+                    // Set a random song for testing
+                    const songList = musicCondition === 'familiar' ? familiarSongs : unfamiliarSongs;
+                    const randomSong = songList[Math.floor(Math.random() * songList.length)];
+                    audioPlayer.src = randomSong;
+                } else {
+                    familiarityTestDiv.classList.add('hidden');
+                }
+            });
+            
+            stopAfter3Sec.addEventListener('click', function() {
+                audioPlayer.play();
+                setTimeout(() => {
+                    audioPlayer.pause();
+                    audioPlayer.currentTime = 0;
+                }, 3000);
+            });
+            
+            document.getElementById('familiar').addEventListener('click', function() {
+                musicFamiliarity = true;
+                alert('You indicated the song is familiar to you.');
+            });
+            
+            document.getElementById('unfamiliar').addEventListener('click', function() {
+                musicFamiliarity = false;
+                alert('You indicated the song is unfamiliar to you.');
+            });
+            
+            document.getElementById('startTest').addEventListener('click', function() {
+                const participantId = document.getElementById('participantId').value;
+                if (!participantId) {
+                    alert('Please enter a Participant ID');
+                    return;
+                }
+                
+                if ((musicCondition === 'familiar' && !musicFamiliarity) || 
+                    (musicCondition === 'unfamiliar' && musicFamiliarity === true)) {
+                    alert('The song familiarity does not match the selected condition. Please select a different song or condition.');
+                    return;
+                }
+                
+                // Start background music if applicable
+                if (musicCondition !== 'none') {
+                    audioPlayback.classList.remove('hidden');
+                    backgroundMusic.src = audioPlayer.src;
+                    backgroundMusic.play();
+                }
+                
+                // Hide setup, show test area
+                setupDiv.classList.add('hidden');
+                testAreaDiv.classList.remove('hidden');
+                
+                // Start the first level
+                startLevel();
+            });
+            
+            // Update the event listeners section
+            // Add event listener for the quit button
+            document.getElementById('quitTest').addEventListener('click', function() {
+                if (confirm('Are you sure you want to quit the test? Your current progress will be saved.')) {
+                    endTest(true); // Pass true to indicate it was a voluntary quit
+                }
+            });
+            
+            nextLevelBtn.addEventListener('click', function() {
+                currentLevel++;
+                if (currentLevel < gridSizes.length) {
+                    startLevel();
+                } else {
+                    // End of test - all levels completed
+                    endTest(false, true); // Pass true as second param to indicate completion
+                }
+            });
+            
+            endTestBtn.addEventListener('click', endTest);
+            
+            document.getElementById('downloadResults').addEventListener('click', function() {
+                downloadResults();
+            });
+            
+            document.getElementById('newTest').addEventListener('click', function() {
+                location.reload();
+            });
+            
+            // Functions
+            // Update the startLevel function for progressive difficulty
+            function startLevel() {
+                // Reset variables
+                sequence = [];
+                userSequence = [];
+                attempts = 0;
+                
+                // Clear previous grid
+                gridDiv.innerHTML = '';
+                
+                // Create grid
+                const gridSize = gridSizes[currentLevel];
+                const totalBoxes = gridSize * gridSize;
+                
+                // Update grid columns CSS for larger grids
+                gridDiv.style.gridTemplateColumns = `repeat(${gridSize}, 1fr)`;
+                
+                for (let i = 0; i < totalBoxes; i++) {
+                    const box = document.createElement('div');
+                    box.className = 'box';
+                    box.dataset.index = i;
+                    gridDiv.appendChild(box);
+                }
+                
+                // Progressive sequence length: harder as levels increase
+                // Level 1: 3 boxes, Level 2: 4 boxes, Level 3: 6 boxes, Level 4: 8 boxes
+                const boxCount = currentLevel <= 1 ? currentLevel + 3 : currentLevel * 2 + 2;
+                const numbers = Array.from({length: totalBoxes}, (_, i) => i);
+                shuffleArray(numbers);
+                sequence = numbers.slice(0, boxCount);
+                
+                // Update instructions
+                instructionsP.textContent = `Level ${currentLevel + 1}: Remember the order of ${boxCount} numbers.`;
+                
+                // Hide buttons during display
+                nextLevelBtn.classList.add('hidden');
+                endTestBtn.classList.add('hidden');
+                feedbackP.textContent = '';
+                
+                // Start displaying sequence after a delay
+                setTimeout(displaySequence, 1000);
+            }
+            
+            function displaySequence() {
+                isDisplaying = true;
+                let i = 0;
+                
+                const intervalId = setInterval(() => {
+                    if (i > 0) {
+                        // Clear previous number
+                        const prevBox = gridDiv.children[sequence[i-1]];
+                        prevBox.textContent = '';
+                        prevBox.classList.remove('flash');
+                    }
+                    
+                    if (i < sequence.length) {
+                        // Show current number
+                        const currentBox = gridDiv.children[sequence[i]];
+                        currentBox.textContent = i + 1;
+                        currentBox.classList.add('flash');
+                        i++;
+                    } else {
+                        // End of sequence
+                        clearInterval(intervalId);
+                        setTimeout(() => {
+                            // Clear last number
+                            const lastBox = gridDiv.children[sequence[sequence.length-1]];
+                            lastBox.textContent = '';
+                            lastBox.classList.remove('flash');
+                            
+                            // Start recall phase
+                            startRecall();
+                        }, 500);
+                    }
+                }, 500);
+            }
+            
+            function startRecall() {
+                isDisplaying = false;
+                isRecalling = true;
+                userSequence = [];
+                startTime = new Date();
+                
+                instructionsP.textContent = 'Now click the boxes in the same order they were numbered.';
+                
+                // Add click event listeners to boxes
+                const boxes = gridDiv.children;
+                for (let i = 0; i < boxes.length; i++) {
+                    boxes[i].addEventListener('click', boxClickHandler);
+                }
+            }
+            
+            function boxClickHandler() {
+                if (!isRecalling) return;
+                
+                const clickedIndex = parseInt(this.dataset.index);
+                userSequence.push(clickedIndex);
+                
+                // Display the number in the clicked box
+                this.textContent = userSequence.length;
+                
+                // Check if correct
+                const expectedIndex = sequence[userSequence.length - 1];
+                if (clickedIndex === expectedIndex) {
+                    this.classList.add('correct');
+                    
+                    // Check if sequence complete
+                    if (userSequence.length === sequence.length) {
+                        endRecall(true);
+                    }
+                } else {
+                    this.classList.add('incorrect');
+                    endRecall(false);
+                }
+            }
+            
+            // Update endRecall to include test status in results
+            function endRecall(success) {
+                isRecalling = false;
+                endTime = new Date();
+                const responseTime = (endTime - startTime) / 1000; // in seconds
+                
+                // Remove click handlers
+                const boxes = gridDiv.children;
+                for (let i = 0; i < boxes.length; i++) {
+                    boxes[i].removeEventListener('click', boxClickHandler);
+                }
+                
+                // Record results
+                attempts++;
+                const accuracy = success ? 1 : 0;
+                if (!success) failures++;
+                
+                results.push({
+                    participantId: document.getElementById('participantId').value,
+                    musicalTraining: parseInt(document.getElementById('musicalTraining').value) || 0,
+                    musicCondition: musicCondition,
+                    level: currentLevel + 1,
+                    gridSize: gridSizes[currentLevel],
+                    sequenceLength: sequence.length,
+                    responseTime: responseTime,
+                    accuracy: accuracy,
+                    attempt: attempts,
+                    timestamp: new Date().toISOString()
+                });
+                
+                // Show feedback
+                if (success) {
+                    feedbackP.textContent = `Success! Response time: ${responseTime.toFixed(2)} seconds`;
+                    nextLevelBtn.classList.remove('hidden');
+                } else {
+                    feedbackP.textContent = `Incorrect sequence. Try again.`;
+                    
+                    // Allow retry or end test
+                    if (attempts >= 3) {
+                        feedbackP.textContent += ' Maximum attempts reached.';
+                        endTestBtn.classList.remove('hidden');
+                    } else {
+                        setTimeout(startLevel, 2000);
+                    }
+                }
+            }
+            
+            // Update the endTest function to include quit option
+            function endTest(quit = false, completed = false) {
+                // Set the test status flags
+                wasQuit = quit;
+                allLevelsCompleted = completed;
+                
+                // Stop background music if playing
+                if (backgroundMusic) {
+                    backgroundMusic.pause();
+                }
+                
+                // Hide test area, show results
+                testAreaDiv.classList.add('hidden');
+                resultsDiv.classList.remove('hidden');
+                
+                // Display results summary
+                const resultsContent = document.getElementById('resultsContent');
+                const totalAttempts = results.length;
+                const successfulAttempts = results.filter(r => r.accuracy === 1).length;
+                const overallAccuracy = totalAttempts > 0 ? 
+                    (successfulAttempts / totalAttempts * 100).toFixed(2) : 0;
+                const averageResponseTime = totalAttempts > 0 ? 
+                    (results.reduce((sum, r) => sum + r.responseTime, 0) / totalAttempts).toFixed(2) : 0;
+                
+                // Get status message based on test completion
+                let statusMessage = '';
+                if (wasQuit) {
+                    statusMessage = `<p><strong>Test Status:</strong> <span style="color:#e74c3c">Quit Early (Reached Level ${currentLevel + 1})</span></p>`;
+                } else if (allLevelsCompleted) {
+                    statusMessage = `<p><strong>Test Status:</strong> <span style="color:#2ecc71">All Levels Completed!</span></p>`;
+                } else {
+                    statusMessage = `<p><strong>Test Status:</strong> <span style="color:#f39c12">Test Ended (Maximum Attempts Reached)</span></p>`;
+                }
+                
+                // Ensure we have results before trying to access them
+                const participantId = results.length > 0 ? results[0].participantId : 
+                    document.getElementById('participantId').value;
+                const musicConditionValue = results.length > 0 ? results[0].musicCondition : musicCondition;
+                const musicalTrainingValue = results.length > 0 ? results[0].musicalTraining : 
+                    parseInt(document.getElementById('musicalTraining').value) || 0;
+                
+                resultsContent.innerHTML = `
+                    <p><strong>Participant ID:</strong> ${participantId}</p>
+                    <p><strong>Music Condition:</strong> ${musicConditionValue}</p>
+                    <p><strong>Musical Training:</strong> ${musicalTrainingValue} years</p>
+                    ${statusMessage}
+                    <p><strong>Highest Level Reached:</strong> ${currentLevel + 1} of ${gridSizes.length}</p>
+                    <p><strong>Total Attempts:</strong> ${totalAttempts}</p>
+                    <p><strong>Successful Attempts:</strong> ${successfulAttempts}</p>
+                    <p><strong>Overall Accuracy:</strong> ${overallAccuracy}%</p>
+                    <p><strong>Average Response Time:</strong> ${averageResponseTime} seconds</p>
+                    <p><strong>Total Failures:</strong> ${failures}</p>
+                `;
+                
+                // Add dataset management buttons
+                const datasetDiv = document.createElement('div');
+                datasetDiv.style.marginTop = '20px';
+                datasetDiv.style.padding = '10px';
+                datasetDiv.style.backgroundColor = '#f0f0f0';
+                datasetDiv.style.borderRadius = '5px';
+                
+                const savedCount = localStorage.getItem('memoryRecallParticipantCount') || 0;
+                datasetDiv.innerHTML = `
+                    <h3>Dataset Management</h3>
+                    <p>You have data from ${savedCount} participant sessions in storage.</p>
+                `;
+                
+                const viewDataBtn = document.createElement('button');
+                viewDataBtn.textContent = 'View Stored Dataset';
+                viewDataBtn.addEventListener('click', viewStoredDataset);
+                datasetDiv.appendChild(viewDataBtn);
+                
+                const clearDataBtn = document.createElement('button');
+                clearDataBtn.textContent = 'Clear Stored Dataset';
+                clearDataBtn.style.backgroundColor = '#e74c3c';
+                clearDataBtn.addEventListener('click', function() {
+                    if (confirm('Are you sure you want to clear all stored data? This cannot be undone.')) {
+                        localStorage.removeItem('memoryRecallSummaryData');
+                        localStorage.removeItem('memoryRecallParticipantCount');
+                        alert('Dataset cleared');
+                        datasetDiv.innerHTML = '<p>Dataset cleared. No stored data.</p>';
+                    }
+                });
+                datasetDiv.appendChild(clearDataBtn);
+                
+                resultsDiv.appendChild(datasetDiv);
+                
+                // Automatically save results to local storage when test ends
+                if (results.length > 0) {
+                    saveResultsToLocalStorage();
+                }
+            }
+            
+            // Replace the saveResultsToLocalStorage and related functions
+
+            // Function to generate a single-row summary for each participant
+            function generateResultsSummary() {
+                if (results.length === 0) return null;
+                
+                const participantId = results[0].participantId;
+                const musicCondition = results[0].musicCondition;
+                const musicalTraining = results[0].musicalTraining;
+                
+                // Get highest level reached (1-based)
+                const highestLevel = currentLevel + 1;
+                
+                // Calculate per-level statistics
+                const levelStats = {};
+                for (let i = 0; i < highestLevel; i++) {
+                    const levelResults = results.filter(r => r.level === i + 1);
+                    const levelAttempts = levelResults.length;
+                    const levelSuccess = levelResults.filter(r => r.accuracy === 1).length;
+                    const levelAccuracy = levelAttempts > 0 ? 
+                        (levelSuccess / levelAttempts * 100).toFixed(2) : '0';
+                    const levelAvgTime = levelAttempts > 0 ?
+                        (levelResults.reduce((sum, r) => sum + r.responseTime, 0) / levelAttempts).toFixed(2) : '0';
+                    
+                    levelStats[`level${i+1}_attempts`] = levelAttempts;
+                    levelStats[`level${i+1}_accuracy`] = levelAccuracy;
+                    levelStats[`level${i+1}_avg_time`] = levelAvgTime;
+                }
+                
+                // Calculate overall statistics
+                const totalAttempts = results.length;
+                const successfulAttempts = results.filter(r => r.accuracy === 1).length;
+                const overallAccuracy = totalAttempts > 0 ? 
+                    (successfulAttempts / totalAttempts * 100).toFixed(2) : '0';
+                const averageResponseTime = totalAttempts > 0 ? 
+                    (results.reduce((sum, r) => sum + r.responseTime, 0) / totalAttempts).toFixed(2) : '0';
+                
+                // Create a summary object with all the stats
+                const summary = {
+                    participantId: participantId,
+                    timestamp: new Date().toISOString(),
+                    musicCondition: musicCondition,
+                    musicalTraining: musicalTraining,
+                    highestLevel: highestLevel,
+                    testStatus: wasQuit ? 'quit' : (allLevelsCompleted ? 'completed' : 'max_attempts'),
+                    totalAttempts: totalAttempts,
+                    successfulAttempts: successfulAttempts,
+                    overallAccuracy: overallAccuracy,
+                    averageResponseTime: averageResponseTime,
+                    ...levelStats
+                };
+                
+                return summary;
+            }
+            
+            function saveResultsToLocalStorage() {
+                const summary = generateResultsSummary();
+                if (!summary) return;
+                
+                // First, check if we have existing data
+                let existingData = localStorage.getItem('memoryRecallSummaryData');
+                let dataArray = [];
+                
+                if (existingData) {
+                    // Parse existing data
+                    try {
+                        dataArray = JSON.parse(existingData);
+                    } catch(e) {
+                        console.error('Error parsing stored data', e);
+                        dataArray = [];
+                    }
+                }
+                
+                // Add the new summary
+                dataArray.push(summary);
+                
+                // Store back to localStorage
+                localStorage.setItem('memoryRecallSummaryData', JSON.stringify(dataArray));
+                localStorage.setItem('memoryRecallParticipantCount', dataArray.length);
+                
+                // Show feedback
+                const savedMessage = document.createElement('p');
+                savedMessage.textContent = `Results saved! Total saved participants: ${dataArray.length}`;
+                savedMessage.style.color = 'green';
+                resultsDiv.appendChild(savedMessage);
+                
+                // Return the CSV version of this single row
+                return convertSummaryToCSV(summary);
+            }
+            
+            function convertSummaryToCSV(summary) {
+                // Get all headers from the summary object
+                const headers = Object.keys(summary);
+                
+                // Generate CSV header row and data row
+                const headerRow = headers.join(',');
+                const dataRow = headers.map(key => {
+                    // Wrap string values in quotes to handle commas in strings
+                    if (typeof summary[key] === 'string' && summary[key].includes(',')) {
+                        return `"${summary[key]}"`;
+                    }
+                    return summary[key];
+                }).join(',');
+                
+                return {
+                    headers: headerRow,
+                    data: dataRow,
+                    full: headerRow + '\n' + dataRow
+                };
+            }
+            
+            function downloadResults() {
+                // Force a save and get the CSV data
+                const csvData = saveResultsToLocalStorage();
+                if (!csvData) {
+                    alert("No results to download");
+                    return;
+                }
+                
+                // Create download link for the current session
+                const blob = new Blob([csvData.full], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `memory_recall_${results[0].participantId}_${new Date().toISOString().split('T')[0]}.csv`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                
+                // Also offer to download the full dataset if not already present
+                if (!document.querySelector('[data-action="download-full"]')) {
+                    const downloadFullDataBtn = document.createElement('button');
+                    downloadFullDataBtn.textContent = 'Download Full Dataset';
+                    downloadFullDataBtn.dataset.action = 'download-full';
+                    downloadFullDataBtn.addEventListener('click', downloadFullDataset);
+                    resultsDiv.appendChild(downloadFullDataBtn);
+                }
+            }
+            
+            function downloadFullDataset() {
+                // Get the stored data
+                const storedData = localStorage.getItem('memoryRecallSummaryData');
+                
+                if (!storedData) {
+                    alert('No saved data found');
+                    return;
+                }
+                
+                try {
+                    const dataArray = JSON.parse(storedData);
+                    if (dataArray.length === 0) {
+                        alert('No saved data found');
+                        return;
+                    }
+                    
+                    // Get headers from the first item
+                    const headers = Object.keys(dataArray[0]).join(',');
+                    
+                    // Map each summary object to a CSV row
+                    const rows = dataArray.map(summary => {
+                        return Object.keys(dataArray[0]).map(key => {
+                            const value = summary[key] || '';
+                            // Wrap string values in quotes to handle commas in strings
+                            if (typeof value === 'string' && value.includes(',')) {
+                                return `"${value}"`;
+                            }
+                            return value;
+                        }).join(',');
+                    }).join('\n');
+                    
+                    // Combine headers and rows
+                    const csv = headers + '\n' + rows;
+                    
+                    // Create and trigger download
+                    const blob = new Blob([csv], { type: 'text/csv' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `memory_recall_full_dataset_${new Date().toISOString().split('T')[0]}.csv`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                } catch(e) {
+                    console.error('Error processing stored data', e);
+                    alert('Error processing the stored data');
+                }
+            }
+            
+            function viewStoredDataset() {
+                const storedData = localStorage.getItem('memoryRecallSummaryData');
+                
+                if (!storedData) {
+                    alert('No saved data found');
+                    return;
+                }
+                
+                try {
+                    const dataArray = JSON.parse(storedData);
+                    if (dataArray.length === 0) {
+                        alert('No saved data found');
+                        return;
+                    }
+                    
+                    // Get headers from the first item
+                    const headers = Object.keys(dataArray[0]).join(',');
+                    
+                    // Map each summary object to a CSV row
+                    const rows = dataArray.map(summary => {
+                        return Object.keys(dataArray[0]).map(key => {
+                            const value = summary[key] || '';
+                            // Wrap string values in quotes to handle commas in strings
+                            if (typeof value === 'string' && value.includes(',')) {
+                                return `"${value}"`;
+                            }
+                            return value;
+                        }).join(',');
+                    }).join('\n');
+                    
+                    // Combine headers and rows for display
+                    const csv = headers + '\n' + rows;
+                    
+                    // Create a modal to display the data
+                    const modal = document.createElement('div');
+                    modal.style.position = 'fixed';
+                    modal.style.top = '0';
+                    modal.style.left = '0';
+                    modal.style.width = '100%';
+                    modal.style.height = '100%';
+                    modal.style.backgroundColor = 'rgba(0,0,0,0.7)';
+                    modal.style.zIndex = '1000';
+                    modal.style.display = 'flex';
+                    modal.style.justifyContent = 'center';
+                    modal.style.alignItems = 'center';
+                    
+                    const content = document.createElement('div');
+                    content.style.backgroundColor = 'white';
+                    content.style.padding = '20px';
+                    content.style.borderRadius = '5px';
+                    content.style.maxWidth = '80%';
+                    content.style.maxHeight = '80%';
+                    content.style.overflow = 'auto';
+                    
+                    const closeBtn = document.createElement('button');
+                    closeBtn.textContent = 'Close';
+                    closeBtn.addEventListener('click', function() {
+                        document.body.removeChild(modal);
+                    });
+                    
+                    const downloadBtn = document.createElement('button');
+                    downloadBtn.textContent = 'Download Full Dataset';
+                    downloadBtn.addEventListener('click', downloadFullDataset);
+                    
+                    const pre = document.createElement('pre');
+                    pre.style.whiteSpace = 'pre-wrap';
+                    pre.textContent = csv;
+                    
+                    content.appendChild(closeBtn);
+                    content.appendChild(downloadBtn);
+                    content.appendChild(document.createElement('hr'));
+                    content.appendChild(pre);
+                    modal.appendChild(content);
+                    
+                    document.body.appendChild(modal);
+                } catch(e) {
+                    console.error('Error processing stored data', e);
+                    alert('Error processing the stored data');
+                }
+            }
+            
+            function shuffleArray(array) {
+                for (let i = array.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [array[i], array[j]] = [array[j], array[i]];
+                }
+                return array;
+            }
+        });
+    </script>
+</body>
+</html>
