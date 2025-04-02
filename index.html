@@ -112,7 +112,6 @@
         <div>
             <label for="musicCondition">Music Condition:</label>
             <select id="musicCondition">
-                <option value="none">No Music</option>
                 <option value="familiar">Familiar Music</option>
                 <option value="unfamiliar">Unfamiliar Music</option>
             </select>
@@ -173,6 +172,8 @@
             // Configuration
             const gridSizes = [2, 3, 4, 5]; // More levels with increasing difficulty
             let currentLevel = 0;
+            // Track attempts per level instead of using a single counter
+            let attemptsPerLevel = [0, 0, 0, 0]; // One for each level
             let sequence = [];
             let userSequence = [];
             let isDisplaying = false;
@@ -276,7 +277,25 @@
             // Add event listener for the quit button
             document.getElementById('quitTest').addEventListener('click', function() {
                 if (confirm('Are you sure you want to quit the test? Your current progress will be saved.')) {
-                    endTest(true); // Pass true to indicate it was a voluntary quit
+                    // Ensure we have at least one result before ending the test
+                    if (results.length === 0) {
+                        // Create a minimal result entry to ensure we have something to save
+                        results.push({
+                            participantId: document.getElementById('participantId').value,
+                            musicalTraining: parseInt(document.getElementById('musicalTraining').value) || 0,
+                            musicCondition: musicCondition,
+                            level: currentLevel + 1,
+                            gridSize: gridSizes[currentLevel],
+                            sequenceLength: sequence.length,
+                            responseTime: 0,
+                            accuracy: 0,
+                            attempt: 1,
+                            timestamp: new Date().toISOString()
+                        });
+                    }
+                    
+                    // Call endTest with quit=true
+                    endTest(true);
                 }
             });
             
@@ -306,7 +325,7 @@
                 // Reset variables
                 sequence = [];
                 userSequence = [];
-                attempts = 0;
+                attemptsPerLevel[currentLevel]++; // Track attempts for each level separately
                 
                 // Clear previous grid
                 gridDiv.innerHTML = '';
@@ -411,13 +430,14 @@
                     if (userSequence.length === sequence.length) {
                         endRecall(true);
                     }
+                    // Removed the data saving during each correct click
                 } else {
                     this.classList.add('incorrect');
                     endRecall(false);
                 }
             }
             
-            // Update endRecall to include test status in results
+            // Update endRecall to use level-specific attempts tracking
             function endRecall(success) {
                 isRecalling = false;
                 endTime = new Date();
@@ -429,12 +449,14 @@
                     boxes[i].removeEventListener('click', boxClickHandler);
                 }
                 
-                // Record results
-                attempts++;
-                const accuracy = success ? 1 : 0;
-                if (!success) failures++;
+                // Get the current number of attempts for this level
+                const currentLevelAttempts = attemptsPerLevel[currentLevel];
                 
-                results.push({
+                // Calculate accuracy - only 1 if successful completion of the entire sequence, 0 otherwise
+                const accuracy = success ? 1 : 0;
+                
+                // Record results for this attempt
+                const resultEntry = {
                     participantId: document.getElementById('participantId').value,
                     musicalTraining: parseInt(document.getElementById('musicalTraining').value) || 0,
                     musicCondition: musicCondition,
@@ -443,19 +465,27 @@
                     sequenceLength: sequence.length,
                     responseTime: responseTime,
                     accuracy: accuracy,
-                    attempt: attempts,
+                    attempt: currentLevelAttempts,
                     timestamp: new Date().toISOString()
-                });
+                };
+                
+                // Add to results array
+                results.push(resultEntry);
+                
+                // Save data after each level completion
+                if (success) {
+                    saveLevelResults(resultEntry);
+                }
                 
                 // Show feedback
                 if (success) {
-                    feedbackP.textContent = `Success! Response time: ${responseTime.toFixed(2)} seconds`;
+                    feedbackP.textContent = `Success! Response time: ${responseTime.toFixed(2)} seconds. Attempts: ${currentLevelAttempts}. Data saved.`;
                     nextLevelBtn.classList.remove('hidden');
                 } else {
                     feedbackP.textContent = `Incorrect sequence. Try again.`;
                     
                     // Allow retry or end test
-                    if (attempts >= 3) {
+                    if (currentLevelAttempts >= 3) {
                         feedbackP.textContent += ' Maximum attempts reached.';
                         endTestBtn.classList.remove('hidden');
                     } else {
@@ -464,97 +494,305 @@
                 }
             }
             
-            // Update the endTest function to include quit option
-            function endTest(quit = false, completed = false) {
-                // Set the test status flags
-                wasQuit = quit;
-                allLevelsCompleted = completed;
+            // New function to save results after each level completion
+            function saveLevelResults(resultEntry) {
+                // First, check if we have existing data
+                let existingData = localStorage.getItem('memoryRecallLevelData');
+                let dataArray = [];
                 
-                // Stop background music if playing
+                if (existingData) {
+                    // Parse existing data
+                    try {
+                        dataArray = JSON.parse(existingData);
+                    } catch(e) {
+                        console.error('Error parsing stored level data', e);
+                        dataArray = [];
+                    }
+                }
+                
+                // Add the new entry
+                dataArray.push(resultEntry);
+                
+                // Store back to localStorage
+                localStorage.setItem('memoryRecallLevelData', JSON.stringify(dataArray));
+                
+                // Also save the simplified version with just the required variables
+                let simplifiedResult = {
+                    ID: resultEntry.participantId,
+                    'Music Type': resultEntry.musicCondition,
+                    Level: resultEntry.level,
+                    'Response Time': resultEntry.responseTime.toFixed(2),
+                    Accuracy: resultEntry.accuracy
+                };
+                
+                let existingSimplifiedData = localStorage.getItem('memoryRecallSimplifiedData');
+                let simplifiedArray = [];
+                
+                if (existingSimplifiedData) {
+                    try {
+                        simplifiedArray = JSON.parse(existingSimplifiedData);
+                    } catch(e) {
+                        console.error('Error parsing stored simplified data', e);
+                        simplifiedArray = [];
+                    }
+                }
+                
+                // Add the new simplified data
+                simplifiedArray.push(simplifiedResult);
+                
+                // Store back to localStorage
+                localStorage.setItem('memoryRecallSimplifiedData', JSON.stringify(simplifiedArray));
+                
+                // Provide auto-download option for the incremental data
+                saveIncrementalDataToFile(resultEntry);
+            }
+            
+            // Function to save incremental data to file
+            function saveIncrementalDataToFile(resultEntry) {
+                try {
+                    // Get existing level data for this participant
+                    let existingData = localStorage.getItem(`levelData_${resultEntry.participantId}`);
+                    let levelStats = [];
+                    
+                    if (existingData) {
+                        try {
+                            levelStats = JSON.parse(existingData);
+                        } catch(e) {
+                            console.error('Error parsing stored level data', e);
+                            levelStats = [];
+                        }
+                    }
+                    
+                    // Check if we already have an entry for this level
+                    const existingLevelIndex = levelStats.findIndex(item => 
+                        item.Level === resultEntry.level
+                    );
+                    
+                    // If we have an existing entry for this level, update it
+                    // Only if the current attempt was successful (accuracy = 1)
+                    if (resultEntry.accuracy === 1) {
+                        if (existingLevelIndex !== -1) {
+                            // Update existing entry with successful attempt data
+                            levelStats[existingLevelIndex].Attempts = resultEntry.attempt;
+                            levelStats[existingLevelIndex]['Response Time'] = parseFloat(resultEntry.responseTime.toFixed(2));
+                            levelStats[existingLevelIndex].Accuracy = resultEntry.accuracy;
+                        } else {
+                            // Add new entry for this level
+                            levelStats.push({
+                                ID: resultEntry.participantId,
+                                'Music Type': resultEntry.musicCondition,
+                                Level: resultEntry.level,
+                                'Response Time': parseFloat(resultEntry.responseTime.toFixed(2)),
+                                Accuracy: resultEntry.accuracy
+                            });
+                        }
+                        
+                        // Sort by level
+                        levelStats.sort((a, b) => a.Level - b.Level);
+                        
+                        // Store the data back to localStorage
+                        localStorage.setItem(`levelData_${resultEntry.participantId}`, JSON.stringify(levelStats));
+                        
+                        // Create CSV formatted string of the level data
+                        const headers = "ID,Music Type,Level,Response Time,Accuracy";
+                        const rows = levelStats.map(entry => {
+                            return `${entry.ID},${entry['Music Type']},${entry.Level},${entry['Response Time']},${entry.Accuracy}`;
+                        }).join('\n');
+                        
+                        const csvData = headers + '\n' + rows;
+                        localStorage.setItem(`levelDataCSV_${resultEntry.participantId}`, csvData);
+                        
+                        // Create temporary notification with export option
+                        const notification = document.createElement('div');
+                        notification.style.position = 'fixed';
+                        notification.style.bottom = '20px';
+                        notification.style.right = '20px';
+                        notification.style.backgroundColor = '#27ae60';
+                        notification.style.color = 'white';
+                        notification.style.padding = '15px';
+                        notification.style.borderRadius = '5px';
+                        notification.style.zIndex = '1000';
+                        notification.style.boxShadow = '0 4px 6px rgba(0,0,0,0.1)';
+                        notification.style.display = 'flex';
+                        notification.style.flexDirection = 'column';
+                        notification.style.gap = '10px';
+                        
+                        const messageDiv = document.createElement('div');
+                        messageDiv.textContent = `Level ${resultEntry.level} completed with ${resultEntry.attempt} attempts! Data saved.`;
+                        notification.appendChild(messageDiv);
+                        
+                        const exportBtn = document.createElement('button');
+                        exportBtn.textContent = 'Export Data (CSV)';
+                        exportBtn.style.backgroundColor = '#2980b9';
+                        exportBtn.style.color = 'white';
+                        exportBtn.style.border = 'none';
+                        exportBtn.style.padding = '8px 12px';
+                        exportBtn.style.borderRadius = '4px';
+                        exportBtn.style.cursor = 'pointer';
+                        
+                        exportBtn.addEventListener('click', () => {
+                            // Download the CSV data
+                            const blob = new Blob([csvData], { type: 'text/csv' });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = `memory_recall_${resultEntry.participantId}_data.csv`;
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                            URL.revokeObjectURL(url);
+                            
+                            // Add confirmation text
+                            exportBtn.textContent = 'Downloaded!';
+                            exportBtn.disabled = true;
+                            exportBtn.style.backgroundColor = '#95a5a6';
+                            
+                            setTimeout(() => {
+                                exportBtn.textContent = 'Export Data (CSV)';
+                                exportBtn.disabled = false;
+                                exportBtn.style.backgroundColor = '#2980b9';
+                            }, 2000);
+                        });
+                        
+                        notification.appendChild(exportBtn);
+                        document.body.appendChild(notification);
+                        
+                        // Remove notification after 10 seconds (increased from 3 to give time to export)
+                        setTimeout(() => {
+                            if (document.body.contains(notification)) {
+                                document.body.removeChild(notification);
+                            }
+                        }, 10000);
+                    }
+                } catch (e) {
+                    console.error('Error saving level data', e);
+                    
+                    // Show error notification
+                    const errorNotification = document.createElement('div');
+                    errorNotification.textContent = `Error saving level data: ${e.message}`;
+                    errorNotification.style.position = 'fixed';
+                    errorNotification.style.bottom = '20px';
+                    errorNotification.style.right = '20px';
+                    errorNotification.style.backgroundColor = '#e74c3c';
+                    errorNotification.style.color = 'white';
+                    errorNotification.style.padding = '10px 15px';
+                    errorNotification.style.borderRadius = '5px';
+                    errorNotification.style.zIndex = '1000';
+                    document.body.appendChild(errorNotification);
+                    
+                    // Remove error notification after 5 seconds
+                    setTimeout(() => {
+                        document.body.removeChild(errorNotification);
+                    }, 5000);
+                }
+            }
+            
+            // Add the missing endTest function before it's referenced
+            function endTest(quit = false, completed = false) {
+                // Stop any audio playback
                 if (backgroundMusic) {
                     backgroundMusic.pause();
+                    backgroundMusic.currentTime = 0;
                 }
+                
+                // Set global flags for results summary
+                wasQuit = quit;
+                allLevelsCompleted = completed;
                 
                 // Hide test area, show results
                 testAreaDiv.classList.add('hidden');
                 resultsDiv.classList.remove('hidden');
                 
-                // Display results summary
-                const resultsContent = document.getElementById('resultsContent');
-                const totalAttempts = results.length;
-                const successfulAttempts = results.filter(r => r.accuracy === 1).length;
-                const overallAccuracy = totalAttempts > 0 ? 
-                    (successfulAttempts / totalAttempts * 100).toFixed(2) : 0;
-                const averageResponseTime = totalAttempts > 0 ? 
-                    (results.reduce((sum, r) => sum + r.responseTime, 0) / totalAttempts).toFixed(2) : 0;
-                
-                // Get status message based on test completion
-                let statusMessage = '';
-                if (wasQuit) {
-                    statusMessage = `<p><strong>Test Status:</strong> <span style="color:#e74c3c">Quit Early (Reached Level ${currentLevel + 1})</span></p>`;
-                } else if (allLevelsCompleted) {
-                    statusMessage = `<p><strong>Test Status:</strong> <span style="color:#2ecc71">All Levels Completed!</span></p>`;
-                } else {
-                    statusMessage = `<p><strong>Test Status:</strong> <span style="color:#f39c12">Test Ended (Maximum Attempts Reached)</span></p>`;
+                // Generate and display results
+                const summary = generateResultsSummary();
+                if (!summary) {
+                    resultsDiv.innerHTML = '<h2>Test Results</h2><p>No results to display.</p>';
+                    return;
                 }
                 
-                // Ensure we have results before trying to access them
-                const participantId = results.length > 0 ? results[0].participantId : 
-                    document.getElementById('participantId').value;
-                const musicConditionValue = results.length > 0 ? results[0].musicCondition : musicCondition;
-                const musicalTrainingValue = results.length > 0 ? results[0].musicalTraining : 
-                    parseInt(document.getElementById('musicalTraining').value) || 0;
-                
-                resultsContent.innerHTML = `
-                    <p><strong>Participant ID:</strong> ${participantId}</p>
-                    <p><strong>Music Condition:</strong> ${musicConditionValue}</p>
-                    <p><strong>Musical Training:</strong> ${musicalTrainingValue} years</p>
-                    ${statusMessage}
-                    <p><strong>Highest Level Reached:</strong> ${currentLevel + 1} of ${gridSizes.length}</p>
-                    <p><strong>Total Attempts:</strong> ${totalAttempts}</p>
-                    <p><strong>Successful Attempts:</strong> ${successfulAttempts}</p>
-                    <p><strong>Overall Accuracy:</strong> ${overallAccuracy}%</p>
-                    <p><strong>Average Response Time:</strong> ${averageResponseTime} seconds</p>
-                    <p><strong>Total Failures:</strong> ${failures}</p>
+                // Create readable summary
+                let resultsHTML = `
+                    <h3>Participant: ${summary.participantId}</h3>
+                    <p><strong>Music Condition:</strong> ${summary.musicCondition}</p>
+                    <p><strong>Prior Musical Training:</strong> ${summary.musicalTraining} years</p>
+                    <p><strong>Test Status:</strong> ${summary.testStatus}</p>
+                    <p><strong>Highest Level:</strong> ${summary.highestLevel}</p>
+                    <p><strong>Overall Accuracy:</strong> ${summary.overallAccuracy}%</p>
+                    <p><strong>Average Response Time:</strong> ${summary.averageResponseTime} seconds</p>
+                    <h4>Level Statistics</h4>
+                    <ul>
                 `;
                 
-                // Add dataset management buttons
-                const datasetDiv = document.createElement('div');
-                datasetDiv.style.marginTop = '20px';
-                datasetDiv.style.padding = '10px';
-                datasetDiv.style.backgroundColor = '#f0f0f0';
-                datasetDiv.style.borderRadius = '5px';
+                // Add per-level stats
+                for (let i = 1; i <= summary.highestLevel; i++) {
+                    resultsHTML += `
+                        <li>Level ${i}: 
+                            Attempts: ${summary[`level${i}_attempts`]}, 
+                            Accuracy: ${summary[`level${i}_accuracy`]}%, 
+                            Avg Time: ${summary[`level${i}_avg_time`]} seconds
+                        </li>
+                    `;
+                }
                 
-                const savedCount = localStorage.getItem('memoryRecallParticipantCount') || 0;
-                datasetDiv.innerHTML = `
-                    <h3>Dataset Management</h3>
-                    <p>You have data from ${savedCount} participant sessions in storage.</p>
-                `;
+                resultsHTML += '</ul>';
                 
-                const viewDataBtn = document.createElement('button');
-                viewDataBtn.textContent = 'View Stored Dataset';
-                viewDataBtn.addEventListener('click', viewStoredDataset);
-                datasetDiv.appendChild(viewDataBtn);
+                // Display the results
+                document.getElementById('resultsContent').innerHTML = resultsHTML;
                 
-                const clearDataBtn = document.createElement('button');
-                clearDataBtn.textContent = 'Clear Stored Dataset';
-                clearDataBtn.style.backgroundColor = '#e74c3c';
-                clearDataBtn.addEventListener('click', function() {
-                    if (confirm('Are you sure you want to clear all stored data? This cannot be undone.')) {
-                        localStorage.removeItem('memoryRecallSummaryData');
-                        localStorage.removeItem('memoryRecallParticipantCount');
-                        alert('Dataset cleared');
-                        datasetDiv.innerHTML = '<p>Dataset cleared. No stored data.</p>';
+                // Save results to localStorage for future reference
+                saveResultsToLocalStorage();
+            }
+            
+            // Modify endTest to include the incremental data files in the download options
+            const originalEndTest = endTest;
+            endTest = function(quit = false, completed = false) {
+                // Call the original endTest function
+                originalEndTest(quit, completed);
+                
+                // Add download option for incremental data if available
+                const participantId = document.getElementById('participantId').value;
+                const incrementalData = localStorage.getItem(`incrementalData_${participantId}`);
+                const incrementalSimplified = localStorage.getItem(`incrementalSimplified_${participantId}`);
+                
+                if (incrementalData || incrementalSimplified) {
+                    // Create download buttons for incremental data
+                    const datasetDiv = document.querySelector('#results div:last-child');
+                    
+                    if (incrementalData) {
+                        const downloadIncrementalBtn = document.createElement('button');
+                        downloadIncrementalBtn.textContent = 'Download Level-by-Level Data';
+                        downloadIncrementalBtn.style.backgroundColor = '#3498db';
+                        downloadIncrementalBtn.style.margin = '10px 5px';
+                        downloadIncrementalBtn.addEventListener('click', function() {
+                            downloadIncrementalData(participantId, incrementalData, 'full');
+                        });
+                        datasetDiv.appendChild(downloadIncrementalBtn);
                     }
-                });
-                datasetDiv.appendChild(clearDataBtn);
-                
-                resultsDiv.appendChild(datasetDiv);
-                
-                // Automatically save results to local storage when test ends
-                if (results.length > 0) {
-                    saveResultsToLocalStorage();
+                    
+                    if (incrementalSimplified) {
+                        const downloadSimplifiedIncrementalBtn = document.createElement('button');
+                        downloadSimplifiedIncrementalBtn.textContent = 'Download Level-by-Level Required Variables';
+                        downloadSimplifiedIncrementalBtn.style.backgroundColor = '#2ecc71';
+                        downloadSimplifiedIncrementalBtn.style.margin = '10px 5px';
+                        downloadSimplifiedIncrementalBtn.addEventListener('click', function() {
+                            downloadIncrementalData(participantId, incrementalSimplified, 'simplified');
+                        });
+                        datasetDiv.appendChild(downloadSimplifiedIncrementalBtn);
+                    }
                 }
+            };
+            
+            // Function to download incremental data
+            function downloadIncrementalData(participantId, data, type) {
+                const blob = new Blob([data], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `memory_recall_${type === 'full' ? 'full' : 'required'}_${participantId}_incremental_${new Date().toISOString().split('T')[0]}.csv`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
             }
             
             // Replace the saveResultsToLocalStorage and related functions
@@ -594,7 +832,6 @@
                 const averageResponseTime = totalAttempts > 0 ? 
                     (results.reduce((sum, r) => sum + r.responseTime, 0) / totalAttempts).toFixed(2) : '0';
                 
-                // Create a summary object with all the stats
                 const summary = {
                     participantId: participantId,
                     timestamp: new Date().toISOString(),
@@ -608,6 +845,33 @@
                     averageResponseTime: averageResponseTime,
                     ...levelStats
                 };
+                
+                // Create a simplified level-by-level summary for easy downloading after each level
+                const levelSummaries = [];
+                for (let i = 0; i < highestLevel; i++) {
+                    const levelResults = results.filter(r => r.level === i + 1);
+                    if (levelResults.length > 0) {
+                        const levelSuccess = levelResults.filter(r => r.accuracy === 1).length;
+                        const levelAccuracy = (levelSuccess / levelResults.length * 100).toFixed(2);
+                        const levelAvgTime = (levelResults.reduce((sum, r) => sum + r.responseTime, 0) / levelResults.length).toFixed(2);
+                        
+                        levelSummaries.push({
+                            participantId: participantId,
+                            level: i + 1,
+                            musicCondition: musicCondition,
+                            musicalTraining: musicalTraining,
+                            gridSize: gridSizes[i],
+                            attempts: levelResults.length,
+                            success: levelSuccess,
+                            accuracy: levelAccuracy,
+                            averageResponseTime: levelAvgTime,
+                            timestamp: new Date().toISOString()
+                        });
+                    }
+                }
+                
+                // Store level summaries in localStorage for easier access
+                localStorage.setItem(`levelSummaries_${participantId}`, JSON.stringify(levelSummaries));
                 
                 return summary;
             }
@@ -636,6 +900,28 @@
                 // Store back to localStorage
                 localStorage.setItem('memoryRecallSummaryData', JSON.stringify(dataArray));
                 localStorage.setItem('memoryRecallParticipantCount', dataArray.length);
+                
+                // Also save the simplified data with just the requested variables
+                const simplifiedData = generateSimplifiedResults();
+                if (simplifiedData && simplifiedData.length > 0) {
+                    let existingSimplifiedData = localStorage.getItem('memoryRecallSimplifiedData');
+                    let simplifiedArray = [];
+                    
+                    if (existingSimplifiedData) {
+                        try {
+                            simplifiedArray = JSON.parse(existingSimplifiedData);
+                        } catch(e) {
+                            console.error('Error parsing stored simplified data', e);
+                            simplifiedArray = [];
+                        }
+                    }
+                    
+                    // Add the new simplified data
+                    simplifiedArray = simplifiedArray.concat(simplifiedData);
+                    
+                    // Store back to localStorage
+                    localStorage.setItem('memoryRecallSimplifiedData', JSON.stringify(simplifiedArray));
+                }
                 
                 // Show feedback
                 const savedMessage = document.createElement('p');
@@ -834,6 +1120,75 @@
                     [array[i], array[j]] = [array[j], array[i]];
                 }
                 return array;
+            }
+            
+            // Function to generate simplified results with just the requested variables
+            function generateSimplifiedResults() {
+                const simplifiedResults = results.map(r => ({
+                    ID: r.participantId,
+                    'Music Type': r.musicCondition,
+                    Level: r.level,
+                    'Response Time': r.responseTime.toFixed(2),
+                    Accuracy: r.accuracy
+                }));
+                
+                // Add download button specifically for simplified data
+                const downloadSimplifiedBtn = document.createElement('button');
+                downloadSimplifiedBtn.textContent = 'Download Required Variables';
+                downloadSimplifiedBtn.style.backgroundColor = '#27ae60';
+                downloadSimplifiedBtn.style.margin = '10px 5px';
+                downloadSimplifiedBtn.addEventListener('click', function() {
+                    downloadSimplifiedResults(simplifiedResults);
+                });
+                
+                // Add button to results div after it becomes visible
+                setTimeout(() => {
+                    if (!document.querySelector('[data-action="download-simplified"]')) {
+                        downloadSimplifiedBtn.dataset.action = 'download-simplified';
+                        resultsDiv.appendChild(downloadSimplifiedBtn);
+                    }
+                }, 100);
+                
+                return simplifiedResults;
+            }
+            
+            // Function to download just the simplified results
+            function downloadSimplifiedResults(simplifiedResults) {
+                if (!simplifiedResults || simplifiedResults.length === 0) {
+                    alert("No results to download");
+                    return;
+                }
+                
+                // Create CSV header from the first result's keys
+                const headers = Object.keys(simplifiedResults[0]).join(',');
+                
+                // Create CSV rows from the data
+                const rows = simplifiedResults.map(result => {
+                    return Object.values(result).map(value => {
+                        // Handle commas in string values
+                        if (typeof value === 'string' && value.includes(',')) {
+                            return `"${value}"`;
+                        }
+                        return value;
+                    }).join(',');
+                }).join('\n');
+                
+                // Combine headers and rows
+                const csv = headers + '\n' + rows;
+                
+                // Create download link
+                const blob = new Blob([csv], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `memory_recall_required_vars_${simplifiedResults[0].ID}_${new Date().toISOString().split('T')[0]}.csv`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                
+                // Show confirmation
+                alert("Required variables (ID, Music Type, Level, Response Time, Accuracy) have been downloaded.");
             }
         });
     </script>
