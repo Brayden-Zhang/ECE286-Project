@@ -169,11 +169,11 @@
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             // Add more grid sizes for progressive difficulty
-            // Configuration
-            const gridSizes = [2, 2, 3, 3, 4]; // 5 levels with consistent grid sizes
+            // Configuration for 4 levels with specific grid sizes and sequence lengths
+            const gridSizes = [3, 3, 4, 4]; // Level 1: 3x3, Level 2: 3x3, Level 3: 4x4, Level 4: 4x4
             let currentLevel = 0;
-            // Track attempts per level instead of using a single counter
-            let attemptsPerLevel = [0, 0, 0, 0, 0]; // One for each level
+            // Track attempts per level
+            let attemptsPerLevel = [0, 0, 0, 0]; // One for each level
             let sequence = [];
             let userSequence = [];
             let isDisplaying = false;
@@ -344,8 +344,8 @@
                     gridDiv.appendChild(box);
                 }
                 
-                // Progressive sequence length from 3 to 7 numbers across 5 levels
-                const sequenceLengths = [3, 4, 5, 6, 7]; // Specific length for each level
+                // Progressive sequence length across 4 levels
+                const sequenceLengths = [4, 5, 5, 6]; // Level 1: 4 numbers, Level 2: 5 numbers, Level 3: 5 numbers, Level 4: 6 numbers
                 const boxCount = sequenceLengths[currentLevel];
                 const numbers = Array.from({length: totalBoxes}, (_, i) => i);
                 shuffleArray(numbers);
