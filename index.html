@@ -170,10 +170,10 @@
         document.addEventListener('DOMContentLoaded', function() {
             // Add more grid sizes for progressive difficulty
             // Configuration
-            const gridSizes = [2, 3, 4, 5]; // More levels with increasing difficulty
+            const gridSizes = [2, 2, 3, 3, 4]; // 5 levels with consistent grid sizes
             let currentLevel = 0;
             // Track attempts per level instead of using a single counter
-            let attemptsPerLevel = [0, 0, 0, 0]; // One for each level
+            let attemptsPerLevel = [0, 0, 0, 0, 0]; // One for each level
             let sequence = [];
             let userSequence = [];
             let isDisplaying = false;
@@ -344,9 +344,9 @@
                     gridDiv.appendChild(box);
                 }
                 
-                // Progressive sequence length: harder as levels increase
-                // Level 1: 3 boxes, Level 2: 4 boxes, Level 3: 6 boxes, Level 4: 8 boxes
-                const boxCount = currentLevel <= 1 ? currentLevel + 3 : currentLevel * 2 + 2;
+                // Progressive sequence length from 3 to 7 numbers across 5 levels
+                const sequenceLengths = [3, 4, 5, 6, 7]; // Specific length for each level
+                const boxCount = sequenceLengths[currentLevel];
                 const numbers = Array.from({length: totalBoxes}, (_, i) => i);
                 shuffleArray(numbers);
                 sequence = numbers.slice(0, boxCount);
@@ -485,7 +485,7 @@
                     feedbackP.textContent = `Incorrect sequence. Try again.`;
                     
                     // Allow retry or end test
-                    if (currentLevelAttempts >= 3) {
+                    if (currentLevelAttempts >= 100) {
                         feedbackP.textContent += ' Maximum attempts reached.';
                         endTestBtn.classList.remove('hidden');
                     } else {
